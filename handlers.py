@@ -3,8 +3,8 @@ import aiogram
 from samp_client.client import SampClient
 from samp_client import exceptions
 
-from config import dp
-from functions import *
+from config import dp, db
+from functions import UserService
 from states import *
 
 
@@ -13,11 +13,12 @@ from states import *
 
 @dp.message_handler(commands='start', state='*')
 async def start(msg: aiogram.types.Message):
-    if await CheckUser.reg(userid=msg.from_user.id):
+    user = UserService(user=msg.from_user)
+    if await user.check_register():
         await msg.reply('Вы уже зарегистрированы!')
     
     else:
-        await ActionUser.new_user(user=[msg.from_user.id, msg.from_user.full_name])
+        await user.add_user()
         await msg.answer('Добро пожаловать! Помощь по командам находится в /help .')
 
 
@@ -25,7 +26,8 @@ async def start(msg: aiogram.types.Message):
         
 @dp.message_handler(commands='help', state='*')
 async def help(msg: aiogram.types.Message):
-    if await CheckUser.reg(userid=msg.from_user.id):
+    user = UserService(user=msg.from_user)
+    if await user.check_register():
         await msg.answer('<b>СПИСОК КОМАНД:</b>\n\n'
                          '- /help : помощь по командам ;\n\n'
                          '- /myservers : взаимодействие с серверами ;\n'
@@ -38,9 +40,10 @@ async def help(msg: aiogram.types.Message):
         
 @dp.message_handler(commands=['myservers', 'моисервера'], state='*')
 async def my_servers(msg: aiogram.types.Message):
-    if await CheckUser.reg(userid=msg.from_user.id):
+    user = UserService(user=msg.from_user)
+    if await user.check_register():
         await msg.reply('Список добавленных серверов:',
-                        reply_markup=await CheckUser.added_servers(userid=msg.from_user.id))
+                        reply_markup=await user.added_servers())
     
     else:
         await msg.reply('Вы не зарегистрированы! Введите /start .')
@@ -48,10 +51,11 @@ async def my_servers(msg: aiogram.types.Message):
 
 @dp.callback_query_handler(aiogram.filters.Text(startswith='server:'), state='*')
 async def actions_with_servers(query: aiogram.types.CallbackQuery, state: aiogram.dispatcher.FSMContext):
+    user = UserService(user=query.from_user)
     data = query.data.split(':')
     category = query.data.split(':')[1]
 
-    if await CheckUser.reg(userid=query.from_user.id):
+    if await user.check_register():
         await query.answer()
 
         match category:
@@ -74,13 +78,11 @@ async def actions_with_servers(query: aiogram.types.CallbackQuery, state: aiogra
                 
             case 'back_to_menu':
                 await query.message.edit_text('Список добавленных серверов:',
-                                              reply_markup=await CheckUser.added_servers(userid=query.from_user.id))
+                                              reply_markup=await user.added_servers())
 
             case 'del':
-                db = sqlite3.connect('database.db')
                 db.cursor().execute(f'DELETE FROM added_servers WHERE id = {query.from_user.id} AND local_number = {data[2]}')
                 db.commit()
-                db.close()
 
                 await query.message.edit_text('Сервер успешно удалён!',
                                               reply_markup=aiogram.types.InlineKeyboardMarkup(
@@ -90,7 +92,6 @@ async def actions_with_servers(query: aiogram.types.CallbackQuery, state: aiogra
             case 'confirm':
                 about_server = await state.get_data()
 
-                db = sqlite3.connect('database.db')
                 local_numbers = db.cursor().execute(f'SELECT local_number FROM added_servers WHERE id = {query.from_user.id}').fetchall()
                 my_numbers = [number[0] for number in local_numbers]
 
@@ -111,7 +112,6 @@ async def actions_with_servers(query: aiogram.types.CallbackQuery, state: aiogra
                 await state.reset_state(with_data=True)
                 
             case _:
-                db = sqlite3.connect('database.db')
 
                 about_server = db.cursor().execute(f'SELECT server_ip, server_title FROM added_servers WHERE local_number = {category}').fetchone()
                 all_server_ip = str(about_server[0]).split(':')
@@ -137,8 +137,6 @@ async def actions_with_servers(query: aiogram.types.CallbackQuery, state: aiogra
                                                   reply_markup=aiogram.types.InlineKeyboardMarkup(
                                                       inline_keyboard=[
                                                           [aiogram.types.InlineKeyboardButton(text='Назад', callback_data='server:back_to_menu')]]))
-                
-                db.close()
     
     else:
         await query.answer('Вы не зарегистрированы! Введите /start .', show_alert=True)
@@ -175,9 +173,10 @@ async def inter_ip(msg: aiogram.types.Message, state: aiogram.dispatcher.FSMCont
         
 @dp.message_handler(commands='find', state='*')
 async def find_player(msg: aiogram.types.Message):
-    if await CheckUser.reg(userid=msg.from_user.id):
+    user = UserService(user=msg.from_user)
+    if await user.check_register():
         await msg.answer('Выберите сервер, на котором хотите найти игрока.',
-                         reply_markup=await ActionUser.chose_server_for_find(userid=msg.from_user.id))
+                         reply_markup=await user.chose_server_for_find())
 
     else:
         await msg.reply('Вы не зарегистрированы! Введите /start .')
@@ -185,7 +184,8 @@ async def find_player(msg: aiogram.types.Message):
 
 @dp.callback_query_handler(aiogram.filters.Text(startswith='chose_server:'), state='*')
 async def inter_nickname(query: aiogram.types.CallbackQuery, state: aiogram.dispatcher.FSMContext):
-    if await CheckUser.reg(userid=query.from_user.id):
+    user = UserService(user=query.from_user)
+    if await user.check_register():
         server = query.data.split(':')[1]
 
         await FindPlayer.inter_nick.set()
@@ -205,7 +205,6 @@ async def search_nickname(msg: aiogram.types.Message, state: aiogram.dispatcher.
     data = await state.get_data()
 
     server = int(data['server'])
-    db = sqlite3.connect('database.db')
     server_ip = db.cursor().execute(f'SELECT server_ip FROM added_servers WHERE id = {msg.from_user.id} AND local_number = {server}').fetchone()
     ip = str(server_ip[0]).split(':')
     
@@ -234,6 +233,5 @@ async def search_nickname(msg: aiogram.types.Message, state: aiogram.dispatcher.
             
     except exceptions as error:
         await msg.reply(f'При проверке произошла ошибка: {error}')
-    
-    db.close()
+        
     await state.reset_state(with_data=True)

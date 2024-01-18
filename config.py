@@ -1,5 +1,6 @@
 # БИБЛИОТЕКА ИМПОРТОВ
 import os
+import sqlite3
 
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
@@ -13,3 +14,5 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 
 bot = Bot(token=BOT_TOKEN, parse_mode=types.ParseMode.HTML)
 dp = Dispatcher(bot=bot, storage=MemoryStorage())
+
+db = sqlite3.connect('database.db')
